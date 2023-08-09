@@ -1,5 +1,7 @@
 import numpy as np
 
+from mpi4py import MPI
+
 def make_param_grid(x0s, dxs, order=4):
 
 
@@ -15,9 +17,16 @@ def make_param_grid(x0s, dxs, order=4):
     
     return Coords, Inds, center_ii
 
-
 def make_predictions_grid(func, Coords, Inds, output_shape=None):
     
+    # Setup MPI Stuff 
+    comm = MPI.COMM_WORLD
+    mpi_rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
+    if mpi_rank==0:
+        print(sys.argv[0]+" running on {:d} processes.".format(mpi_size))
+
+    # Now actually do stuff:
     Nparams = len(Coords)
     Npoints = Coords[0].shape[0]
     
@@ -26,9 +35,13 @@ def make_predictions_grid(func, Coords, Inds, output_shape=None):
         output_shape = func(*coord).shape
         
     Fii = np.zeros( (Npoints,)*Nparams+ output_shape)
-        
+    Fii_this = np.zeros( (Npoints,)*Nparams+ output_shape)
+
     for nn, iis in enumerate(zip(*Inds)):
-        coord = [Coords[i][iis] for i in range(Nparams)]
-        Fii[iis] =  func(*coord)
-        
+        if nn%mpi_size == mpi_rank:        
+            coord = [Coords[i][iis] for i in range(Nparams)]
+            Fii_this[iis] =  func(*coord)
+            
+    comm.Allreduce(Fii_this, Fii, op=MPI.SUM)
+    
     return Fii
